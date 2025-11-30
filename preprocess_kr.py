@@ -5,9 +5,9 @@ import numpy as np
 import pandas as pd
 import cv2
 
-# -----------------------------------------
-# Meta-genre mapping
-# -----------------------------------------
+# ------------------------------------------------------------
+# 1. Meta-genre mapping (unchanged)
+# ------------------------------------------------------------
 META_MAP = {
     "Folk&Blues": "Blues-like",
     "Rock&Metal": "Rock/Metal",
@@ -18,10 +18,14 @@ META_MAP = {
 
 KEEP_META = set(META_MAP.values())
 
-Instruments selection
+# ------------------------------------------------------------
+# 2. OPTIONAL: Instrument selection
+# ------------------------------------------------------------
+# KEEP_INSTRUMENTS = None  # Keep all instruments
+KEEP_INSTRUMENTS = ["Piano", "Guitar", "Bass", "Strings"]  # Recommended option
 
 # ------------------------------------------------------------
-# USER PATHS (EDIT THESE ONLY)
+# 3. Paths
 # ------------------------------------------------------------
 ROOT = r"C:\Users\anjen\Desktop\project\anjenn\genre_classification\k-music\Training"
 
@@ -34,16 +38,11 @@ os.makedirs(OUTPUT_MELS, exist_ok=True)
 CSV_PATH = os.path.join(ROOT, "labels.csv")
 
 # ------------------------------------------------------------
-# Helpers
+# 4. Helpers
 # ------------------------------------------------------------
 def extract_loop_index(filename):
-    """
-    Given filename like:
-    Vocal&Melody_Voice Aahs_0092224_Folk&Blues_100BPM.wav
-    Return: "0092224"
-    """
+    """Extracts digits like 0092224 from filename."""
     parts = filename.split("_")
-    # Identify the part that is the loop index (always digits)
     for p in parts:
         if p.isdigit():
             return p
@@ -55,32 +54,47 @@ def load_json(json_path):
         return json.load(f)
 
 
-# Fix length to make it 5 secs
 def load_audio_fixed(wav_path, target_sr=22050, target_len_sec=5):
+    """Load & force 5-second audio."""
     y, sr = librosa.load(wav_path, sr=target_sr, mono=True)
-    # NEW: use keyword argument for size
     y = librosa.util.fix_length(y, size=target_len_sec * target_sr)
     return y, sr
 
-# Generating melspec
+
 def make_melspec(y, sr, size=128):
+    """128×128 mel-spectrogram."""
     S = librosa.feature.melspectrogram(
         y=y, sr=sr, n_mels=size, n_fft=2048, hop_length=512
     )
     S = librosa.power_to_db(S, ref=np.max)
-
-    # Resize to 128×128 (time axis depends on hop_length)
-    S_resized = cv2.resize(S, (size, size))
-    return S_resized
+    return cv2.resize(S, (size, size))
 
 
 # ------------------------------------------------------------
-# Scan folders & collect file paths
+# 5. Instrument parser
+# ------------------------------------------------------------
+def extract_instrument_info(wav_path):
+    """
+    Extracts:
+        instrument      → Piano, Guitar, Bass, ...
+        subinstrument   → Bright Acoustic Piano, Voice Aahs, etc.
+    """
+    folder = os.path.basename(os.path.dirname(wav_path))
+    # Example: TS_03.Piano_02.Bright Acoustic Piano
+
+    try:
+        _, rest = folder.split(".", 1)           # "Piano_02.Bright Acoustic Piano"
+        inst_family, inst_sub = rest.split("_", 1)
+        inst_sub = inst_sub.split(".", 1)[1]     # remove "02."
+        return inst_family.strip(), inst_sub.strip()
+    except:
+        return None, None
+
+
+# ------------------------------------------------------------
+# 6. Scan folders
 # ------------------------------------------------------------
 def collect_files(root, extensions):
-    """
-    Walks root and returns {loopIndex: full_path} for each file type.
-    """
     result = {}
     for folder, _, files in os.walk(root):
         for f in files:
@@ -99,7 +113,7 @@ label_files = collect_files(LBL_DIR, [".json", ".mid"])
 
 
 # ------------------------------------------------------------
-# Match WAV ↔ JSON by loop index
+# 7. Match WAV ↔ JSON
 # ------------------------------------------------------------
 matched = []
 
@@ -111,7 +125,6 @@ for idx, wavs in wav_files.items():
     json_path = None
     mid_path = None
 
-    # classify json vs mid
     for fp in label_files[idx]:
         if fp.lower().endswith(".json"):
             json_path = fp
@@ -122,7 +135,6 @@ for idx, wavs in wav_files.items():
         print(f"[WARN] No JSON for {idx}; skipping.")
         continue
 
-    # usually there is exactly one wav
     for wav_path in wavs:
         matched.append((idx, wav_path, json_path, mid_path))
 
@@ -131,57 +143,67 @@ print(f"Matched samples: {len(matched)}")
 
 
 # ------------------------------------------------------------
-# Process all matched samples
+# 8. Process samples
 # ------------------------------------------------------------
 records = []
 
 for idx, wav_path, json_path, mid_path in matched:
     try:
-        # Load JSON → extract original genre
         meta = load_json(json_path)
-        raw_genre = meta["dataSet"]["loopInfo"]["genre"]  # e.g. Folk&Blues
+        raw_genre = meta["dataSet"]["loopInfo"]["genre"]
 
-        # Skip if raw genre not recognized
+        # --- META-GENRE FILTER ---
         if raw_genre not in META_MAP:
-            print(f"[SKIP] {idx} rawGenre={raw_genre} not in target groups")
+            print(f"[SKIP] {idx}: genre {raw_genre} not in target list")
             continue
 
-        # Map to meta-genre
         meta_genre = META_MAP[raw_genre]
 
-        # Load audio → fixed 5 sec
+        # --- INSTRUMENT EXTRACTION ---
+        instrument, subinstrument = extract_instrument_info(wav_path)
+
+        # --- INSTRUMENT FILTER (if enabled) ---
+        if KEEP_INSTRUMENTS is not None:
+            if instrument not in KEEP_INSTRUMENTS:
+                print(f"[SKIP] {idx}: instrument {instrument} not allowed")
+                continue
+
+        # --- Mel-spectrogram ---
         y, sr = load_audio_fixed(wav_path)
+        mel = make_melspec(y, sr)
 
-        # Make mel-spectrogram 128×128
-        mel = make_melspec(y, sr, size=128)
-
-        # Save .npy
+        # --- Save .npy ---
         out_path = os.path.join(OUTPUT_MELS, f"{idx}.npy")
         np.save(out_path, mel)
 
-        # Add record
+        # --- Record ---
         records.append([
             idx,
             raw_genre,
             meta_genre,
+            instrument,
+            subinstrument,
             wav_path,
             json_path,
             mid_path,
             out_path
         ])
 
-        print(f"[OK] {idx} → {meta_genre}")
+        print(f"[OK] {idx} → {meta_genre}, {instrument}/{subinstrument}")
 
     except Exception as e:
-        print(f"[ERROR] idx={idx} | {e}")
+        print(f"[ERROR] {idx} | {e}")
+
 
 # ------------------------------------------------------------
-# Save CSV
+# 9. Save labels.csv
 # ------------------------------------------------------------
 df = pd.DataFrame(records, columns=[
     "loopIndex",
     "raw_genre",
     "meta_genre",
+    "instrument",
+    "subinstrument",
     "wav",
     "json",
     "mid",
@@ -190,6 +212,6 @@ df = pd.DataFrame(records, columns=[
 
 df.to_csv(CSV_PATH, index=False, encoding="utf-8-sig")
 
-print("Done!")
+print("\nDone!")
 print(f"Saved CSV → {CSV_PATH}")
 print(f"Saved mels → {OUTPUT_MELS}")
