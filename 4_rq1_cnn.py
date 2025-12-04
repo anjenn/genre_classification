@@ -344,12 +344,19 @@ def validate_csv(df, name):
 
 def main():
     dataset = "gtzan"
+    # dataset = "korean"
 
     ROOT = r"C:\Users\anjen\Desktop\project\anjenn\genre_classification\rq1_combined"
 
     csv_train = os.path.join(ROOT, "gtzan", "split", "gtzan_train.csv")
     csv_val   = os.path.join(ROOT, "gtzan", "split", "gtzan_val.csv")
     csv_test  = os.path.join(ROOT, "gtzan", "split", "gtzan_test.csv")
+
+    df_korean = pd.read_csv(r"C:\Users\anjen\Desktop\project\anjenn\genre_classification\k-music\Training\mfcc_features.csv")
+
+    # csv_train2 = os.path.join(ROOT, "korean", "split", "korean_train.csv")
+    # csv_val2   = os.path.join(ROOT, "korean", "split", "korean_val.csv")
+    # csv_test2  = os.path.join(ROOT, "korean", "split", "korean_test.csv")
 
     df_train = pd.read_csv(csv_train)
     df_val   = pd.read_csv(csv_val)
@@ -372,6 +379,11 @@ def main():
     model = GenreCNN(len(class_names)).to(DEVICE)
     opt = torch.optim.Adam(model.parameters(), lr=LR)
     criterion = nn.CrossEntropyLoss()
+
+    # Filter Korean dataset to matching genres only
+    df_korean = df_korean[df_korean["meta_genre"].isin(class_names)]
+    df_korean = df_korean.dropna(subset=["mel_path"])
+    korean_loader = make_loader(df_korean, label2idx, shuffle=False)
 
     best_val = 0
     patience = PATIENCE
@@ -409,7 +421,7 @@ def main():
     print(classification_report(y_true, y_pred, target_names=class_names))
 
     # Save report
-    with open(out(dataset, "cnn_report.json"), "w") as f:
+    with open(out(dataset, "cnn_report2.json"), "w") as f:
         json.dump(
             classification_report(y_true, y_pred, target_names=class_names, output_dict=True),
             f, indent=4
@@ -417,7 +429,7 @@ def main():
 
     # Confusion matrix
     cm = confusion_matrix(y_true, y_pred)
-    np.savetxt(out(dataset, "cnn_cm_raw.csv"), cm, fmt="%d", delimiter=",")
+    np.savetxt(out(dataset, "cnn_cm_raw2.csv"), cm, fmt="%d", delimiter=",")
 
     cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
     plt.figure(figsize=(7, 6))
@@ -425,8 +437,38 @@ def main():
                 xticklabels=class_names, yticklabels=class_names)
     plt.title("RQ1 CNN – Normalized Confusion Matrix")
     plt.tight_layout()
-    plt.savefig(out(dataset, "cnn_cm.png"))
+    plt.savefig(out(dataset, "cnn_cm2.png"))
     plt.close()
+
+    # -----------------------------------
+    # KOREAN EVAL (CROSS-CULTURAL)
+    # -----------------------------------
+    _, _, y_true_k, y_pred_k = eval_epoch(model, korean_loader, criterion)
+    acc_k = accuracy_score(y_true_k, y_pred_k)
+    macro_f1_k = f1_score(y_true_k, y_pred_k, average="macro")
+
+    print("\n=== CROSS-CULTURAL CNN Results (GTZAN→Korean) ===")
+    print("Accuracy :", acc_k)
+    print("Macro F1 :", macro_f1_k)
+    print(classification_report(y_true_k, y_pred_k, target_names=class_names))
+
+    with open(out(dataset, "cnn_korean_eval_report.json"), "w") as f:
+        json.dump(classification_report(
+            y_true_k, y_pred_k, target_names=class_names, output_dict=True),
+            f, indent=4
+        )
+
+    cm_k = confusion_matrix(y_true_k, y_pred_k)
+    cm_k_norm = cm_k.astype(float) / cm_k.sum(axis=1, keepdims=True)
+
+    plt.figure(figsize=(7, 6))
+    sns.heatmap(cm_k_norm, annot=True, fmt=".2f",
+                xticklabels=class_names, yticklabels=class_names)
+    plt.title("CNN (Cross-Cultural Korean Evaluation)")
+    plt.tight_layout()
+    plt.savefig(out(dataset, "cnn_korean_cm.png"))
+    plt.close()
+
 
     # --------------------------
     # GRAD-CAM
@@ -436,11 +478,10 @@ def main():
     correct_df = df_test[(y_true == y_pred)]
     wrong_df   = df_test[(y_true != y_pred)]
 
-    save_cam_examples(dataset, model, gradcam, correct_df, class_names, prefix="correct")
-    save_cam_examples(dataset, model, gradcam, wrong_df, class_names, prefix="wrong")
+    save_cam_examples(dataset, model, gradcam, correct_df, class_names, prefix="correct2")
+    save_cam_examples(dataset, model, gradcam, wrong_df, class_names, prefix="wrong2")
 
     print("\n[Done] RQ1 CNN complete.")
-
 
 if __name__ == "__main__":
     main()

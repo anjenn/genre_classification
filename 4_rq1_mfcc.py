@@ -295,6 +295,8 @@ def save_shap_outputs(shap_values, feature_names, y_test, class_names, save_pref
 # =========================================================
 def run_dataset_splits(base_dir: str, dataset_name: str):
     print(f"\n================ {dataset_name} ================")
+    df_korean = pd.read_csv(r"C:\Users\anjen\Desktop\project\anjenn\genre_classification\k-music\Training\mfcc_features.csv")
+
 
     train_csv = os.path.join(base_dir, f"{dataset_name}_train.csv")
     val_csv   = os.path.join(base_dir, f"{dataset_name}_val.csv")
@@ -400,11 +402,60 @@ def run_dataset_splits(base_dir: str, dataset_name: str):
 
     else:
         raise ValueError(f"[SHAP] Unrecognized SHAP output shape: {raw.shape}")
+    
+    save_shap_outputs(clean, feature_cols, y_test, class_names, save_prefix=f"{dataset_name}_XGB")
 
     # clean = list of C arrays shaped (N,F)
+    return {
+        "rf": rf,
+        "xgb": xgb,
+        "scaler": scaler,
+        "label_encoder": le,
+        "class_names": class_names,
+        "feature_cols": feature_cols
+    }
 
 
+def evaluate_cross_cultural(models, korean_csv):
+    print("\n=== CROSS-CULTURAL EVALUATION (GTZAN → Korean) ===")
+    
+    df_korean = pd.read_csv(korean_csv)
 
+    # Filter only valid classes
+    class_names = models["class_names"]
+    df_korean = df_korean[df_korean["meta_genre"].isin(class_names)]
+
+    # Extract features
+    feature_cols = models["feature_cols"]
+    X_k = np.stack([np.load(p) for p in df_korean["feat_path"]])
+    y_k = df_korean["meta_genre"].values
+
+    # ========== RANDOM FOREST ==========
+    rf = models["rf"]
+    rf_preds = rf.predict(X_k)
+
+    compute_confusion(
+        y_k, rf_preds, class_names,
+        save_prefix="cross_RF"
+    )
+
+    # ========== XGBOOST ==========
+    scaler = models["scaler"]
+    xgb = models["xgb"]
+    le = models["label_encoder"]
+
+    X_k_scaled = scaler.transform(X_k)
+    y_k_enc = le.transform(y_k)
+
+    xgb_preds_enc = xgb.predict(X_k_scaled)
+    xgb_preds = le.inverse_transform(xgb_preds_enc)
+
+    compute_confusion(
+        y_k, xgb_preds, class_names,
+        save_prefix="cross_XGB"
+    )
+
+    print("\n[Cross-cultural evaluation complete!]")
 
 # =========================================================
 # ENTRYPOINT
@@ -413,19 +464,21 @@ def run_classical_rq1():
 
     ROOT = r"C:\Users\anjen\Desktop\project\anjenn\genre_classification\rq1_combined"
 
-    run_dataset_splits(
-        base_dir=os.path.join(ROOT, "combined", "split"),
-        dataset_name="combined"
-    )
+    # run_dataset_splits(
+    #     base_dir=os.path.join(ROOT, "combined", "split"),
+    #     dataset_name="combined"
+    # )
 
-    run_dataset_splits(
+    # Train ONLY on GTZAN
+    results_gtzan = run_dataset_splits(
         base_dir=os.path.join(ROOT, "gtzan", "split"),
         dataset_name="gtzan"
     )
 
-    run_dataset_splits(
-        base_dir=os.path.join(ROOT, "korean", "split"),
-        dataset_name="korean"
+    # Cross-cultural evaluation using FULL Korean dataset
+    evaluate_cross_cultural(
+        results_gtzan,
+        korean_csv=r"C:\Users\anjen\Desktop\project\anjenn\genre_classification\k-music\Training\mfcc_features.csv"
     )
 
 

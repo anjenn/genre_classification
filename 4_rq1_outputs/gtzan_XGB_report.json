@@ -1,0 +1,39 @@
+{
+    "Blues-like": {
+        "precision": 0.6428571428571429,
+        "recall": 0.6,
+        "f1-score": 0.6206896551724138,
+        "support": 15.0
+    },
+    "HipHop/Rap": {
+        "precision": 0.7692307692307693,
+        "recall": 0.6666666666666666,
+        "f1-score": 0.7142857142857143,
+        "support": 15.0
+    },
+    "Pop/Dance/RnB": {
+        "precision": 0.8666666666666667,
+        "recall": 0.8666666666666667,
+        "f1-score": 0.8666666666666667,
+        "support": 30.0
+    },
+    "Rock/Metal": {
+        "precision": 0.7878787878787878,
+        "recall": 0.8666666666666667,
+        "f1-score": 0.8253968253968254,
+        "support": 30.0
+    },
+    "accuracy": 0.7888888888888889,
+    "macro avg": {
+        "precision": 0.7666583416583417,
+        "recall": 0.75,
+        "f1-score": 0.7567597153804051,
+        "support": 90.0
+    },
+    "weighted avg": {
+        "precision": 0.7868631368631369,
+        "recall": 0.7888888888888889,
+        "f1-score": 0.7865170589308519,
+        "support": 90.0
+    }
+}
